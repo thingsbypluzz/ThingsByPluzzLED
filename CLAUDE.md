@@ -78,28 +78,94 @@ Jeśli projekt urośnie, migracja jest prosta.
 
 ## Kluczowe struktury danych z firmware (referencja)
 
+### Wersja firmware: v6.24 (mustang_working.ino)
+
+### Układ fizyczny matrycy
+```
+Każda lampa = 2× matryca 8×8 WS2812B = 128 diod = jeden ciągły pasek NeoPixel
+Logiczny widok: 16 kolumn × 8 wierszy
+
+Blok 0 (kolumny 0–7):  indeksy NeoPixel 0–63
+Blok 1 (kolumny 8–15): indeksy NeoPixel 64–127
+
+Serpentyna (row-major, blok po bloku):
+  - kolumny parzyste (0,2,4...):  wiersz 0→7 (góra→dół)
+  - kolumny nieparzyste (1,3,5...): wiersz 7→0 (dół→góra)
+
+UWAGA: lewa lampa ma lustrzane mapowanie względem prawej!
+```
+
+### Kolory i jasność
 ```cpp
-// Konfiguracja kolorów
 struct LampColors {
-  uint32_t positionColor;   // kolor świateł pozycyjnych
-  uint32_t stopColor;       // kolor świateł STOP
-  uint32_t turnColor;       // kolor kierunkowskazów
-  uint8_t  positionBrightness;
-  uint8_t  stopBrightness;
-  uint8_t  turnBrightness;
+  uint32_t turn;      // kolor kierunkowskazów (domyślnie 0xFF5500 = pomarańczowy)
+  uint32_t stop;      // kolor STOP           (domyślnie 0xFFFFFF = biały)
+  uint32_t lightsOn;  // kolor pozycyjnych    (domyślnie 0x400000 = ciemna czerwień)
 };
+LampColors colorConfig;  // jedna wspólna konfiguracja dla obu lamp
 
-LampColors colorConfig[2]; // [0] = lewa, [1] = prawa
+// Jasność: EEPROM przechowuje 0–100% (skala percepcyjna γ=2.2)
+// Funkcja konwersji: neoFromPercent(int p) → uint8_t 0–255
+// Domyślne jasności: stop=30%, turn=30%, lights=25%
 
-// Mapowanie serpentyny
-// serpentineMap[strip][col][row] = indeks diody w pasku NeoPixel
-int serpentineMap[2][16][8];
+// Paleta kolorów (enum):
+// 0: RED    0xFF0000
+// 1: ORANGE 0xFF5500  ← domyślny TURN
+// 2: WHITE  0xFFFFFF  ← domyślny STOP
+// 3: YELLOW 0xFFAA00
+```
 
-// Główne funkcje animacji (do symulacji)
-void renderOrganicTurn(int strip, bool entering);
-void renderContinuousOrganicTurn(int strip);
-void renderDemoMode();
-uint32_t getBrakeColor(uint32_t baseColor, bool isFlashing);
+### Stany systemu (state machine)
+```
+IDLE              → świeci tylko pozycyjne (jeśli LIGHTS_ON)
+TURN_LEFT         → animacja lewej lampy
+TURN_RIGHT        → animacja prawej lampy
+HAZARD            → animacja obu lamp jednocześnie
+BRAKING           → STOP (F1 flash + stałe)
+DEMO              → tryb demo (z menu)
+ANIMATING_LIGHTS_ON  → animacja wejścia świateł (1500ms)
+ANIMATING_LIGHTS_OFF → animacja wyjścia świateł (600ms)
+```
+
+### Zarejestrowane animacje kierunkowskazów (turnAnimIdx)
+```
+0: Diamond Pulse         renderDiamondPulse()
+1: Star Fill Pulse       renderStarFillPulse()
+2: Scanning Aura         renderScanningAura()
+3: Continuous Organic    renderContinuousOrganicTurn(ghosting=10.0)
+4: Continuous Organic 2  renderContinuousOrganicTurn2()
+5: Radar                 renderRadarTurnCalculated()
+6: Column Fill Pulse     renderColumnFillPulse()
+7: Column Wipe           renderColumnWipe()
+```
+Wszystkie animacje mają sygnaturę: `void func(int stripIdx, uint32_t color)`
+Globalny parametr czasu: `turnAnimSpeed` (domyślnie 900ms)
+
+### Logika kierunkowskazu (ważne dla symulatora)
+```
+Sygnał LEFT/RIGHT z auta jest przerywany przez flasher (~500ms on/off).
+Firmware filtruje ten sygnał przez isTurnActive() z timeoutem turnTimeout (domyślnie 600ms).
+W wizualizatorze symuluj to jako przycisk który automatycznie pulsuje co ~500ms.
+```
+
+### Efekt F1 Stop
+```
+Po wciśnięciu hamulca: 3× błysk (50ms on / 50ms off) pełną jasnością (255),
+następnie stałe świecenie z jasnością brightStop%.
+Konfigurowalne: stopBlinkNumber=3, stopBlinkDuration=50ms, stopGap=50ms
+```
+
+### Podkład pozycyjnych pod TURN (turnPosUnderlay)
+```
+Gdy LIGHTS_ON=true i aktywny kierunkowskaz:
+  strip.fill(lightsOn @ brightLights%)   ← najpierw pozycyjne
+  turnAnim.func(strip, turn)             ← animacja na wierzch
+```
+
+### Piksele — format koloru
+```
+NeoPixel: 0xRRGGBB (32-bit uint32_t)
+Skalowanie jasności: scaleRgbBrightness(color, neo_0_255)
 ```
 
 ---
@@ -170,6 +236,21 @@ Folder: `LED_TailLights` (Google Drive, właściciel: pluzztezeusz@gmail.com)
 - `Opis schematu` — schemat elektryczny i lista połączeń
 - `Mustang LED - Stan Faktyczny Projektu` — aktualny stan projektu (czerwiec 2026)
 - Arkusz kalkulacyjny — lista zakupów komponentów
+
+## Pliki firmware w repozytorium
+
+```
+ThingsByPluzzLED/
+├── firmware/
+│   ├── mustang_working.ino       ← główny plik firmware v6.24
+│   ├── mustang_settings.h        ← struktura Settings + EEPROM defaults
+│   └── mustang_perceptual.h      ← konwersja jasności % → NeoPixel (γ=2.2)
+├── visualizer/
+│   └── index.html                ← wizualizator (cel budowy)
+└── CLAUDE.md
+```
+
+Przy budowie wizualizatora czytaj firmware jako źródło prawdy — szczególnie funkcje animacji i mapowanie serpentyny.
 
 ---
 
