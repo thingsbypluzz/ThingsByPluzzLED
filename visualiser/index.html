@@ -147,9 +147,34 @@ input[type=color] {
   cursor: pointer;
 }
 .btn-reset:hover { color: #888; border-color: #555; }
-.apply-status { letter-spacing: 1px; min-width: 120px; }
+.apply-status { letter-spacing: 1px; min-width: 100px; }
 .apply-status.ok  { color: #4f4; }
 .apply-status.err { color: #f44; }
+.btn-export {
+  padding: 5px 12px;
+  border: 1px solid #446;
+  background: #0a0a18;
+  color: #88a;
+  font-family: inherit;
+  font-size: 1em;
+  letter-spacing: 1px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-export:hover { background: #141430; color: #aac; border-color: #668; }
+.btn-import-label {
+  padding: 5px 12px;
+  border: 1px solid #333;
+  background: #181818;
+  color: #555;
+  font-family: inherit;
+  font-size: 1em;
+  letter-spacing: 1px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-import-label:hover { color: #888; border-color: #555; }
+.modified-dot { font-size: 0.85em; color: #f80; letter-spacing: 0; white-space: nowrap; }
 .editor-layout {
   display: flex;
   gap: 12px;
@@ -307,6 +332,11 @@ input[type=color] {
     <div class="editor-actions">
       <button class="btn-apply" id="btnApply">▶ Apply</button>
       <button class="btn-reset" id="btnReset">↺ Reset</button>
+      <button class="btn-export" id="btnExport">⬇ Zapisz plik</button>
+      <label class="btn-import-label">⬆ Wczytaj plik
+        <input type="file" id="fileImport" accept=".json" style="display:none">
+      </label>
+      <span class="modified-dot" id="modifiedDot"></span>
       <span class="apply-status" id="applyStatus"></span>
     </div>
   </div>
@@ -842,6 +872,98 @@ function drawLamp(cv, buf, stripIdx) {
 // =========================================================================
 // EDITOR
 // =========================================================================
+// =========================================================================
+// PERSISTENCE (localStorage)
+// =========================================================================
+const lsKey = idx => `mustangLedAnim_v1_${idx}`;
+
+function saveToLS(idx) {
+  try {
+    localStorage.setItem(lsKey(idx), JSON.stringify({
+      source: animSources[idx],
+      params: { ...animParamVals[idx] }
+    }));
+  } catch(e) {}
+}
+
+function loadFromLS(idx) {
+  try {
+    const raw = localStorage.getItem(lsKey(idx));
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (typeof data.source !== 'string') return false;
+    animSources[idx] = data.source;
+    if (data.params) Object.assign(animParamVals[idx], data.params);
+    const result = compileAnim(data.source);
+    if (typeof result === 'function') compiledAnims[idx] = result;
+    return true;
+  } catch(e) { return false; }
+}
+
+function clearLS(idx) {
+  try { localStorage.removeItem(lsKey(idx)); } catch(e) {}
+}
+
+// =========================================================================
+// EXPORT / IMPORT
+// =========================================================================
+function exportAnimFile(idx) {
+  const blob = new Blob([JSON.stringify({
+    mustangLedAnim: true,
+    version: 1,
+    name: ANIM_NAMES[idx],
+    params: { ...animParamVals[idx] },
+    source: animSources[idx]
+  }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = 'mustang_' + ANIM_NAMES[idx].toLowerCase().replace(/\s+/g, '_') + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importAnimFile(idx, file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.mustangLedAnim || typeof data.source !== 'string')
+        throw new Error('Nieprawidłowy format pliku');
+      animSources[idx] = data.source;
+      if (data.params) Object.assign(animParamVals[idx], data.params);
+      const result = compileAnim(data.source);
+      if (typeof result === 'function') {
+        compiledAnims[idx] = result;
+        saveToLS(idx);
+        loadAnimEditor(idx);
+        setApplyStatus('⬆ wczytano', 'ok');
+      } else {
+        setApplyStatus('✗ ' + (result.error || 'błąd kompilacji'), 'err');
+      }
+    } catch(err) {
+      setApplyStatus('✗ ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// =========================================================================
+// MODIFIED INDICATOR
+// =========================================================================
+function isModified(idx) {
+  if (animSources[idx] !== ANIM_SOURCES_DEFAULT[idx]) return true;
+  return ANIM_PARAM_DEFS[idx].some(d => animParamVals[idx][d.key] !== d.def);
+}
+
+function updateModifiedDot(idx) {
+  const dot = document.getElementById('modifiedDot');
+  if (dot) dot.textContent = isModified(idx) ? '● zmodyfikowana' : '';
+}
+
+// =========================================================================
+// EDITOR
+// =========================================================================
 function fmtVal(v) {
   if (Number.isInteger(v) || (v === Math.round(v) && Math.abs(v) >= 10)) return String(v);
   return Math.abs(v) < 1 ? v.toFixed(2) : v.toFixed(1);
@@ -881,6 +1003,7 @@ function loadAnimEditor(idx) {
   document.getElementById('codeEditor').value = animSources[idx];
   setApplyStatus('', '');
   renderParamsPanel(idx);
+  updateModifiedDot(idx);
 }
 
 function setApplyStatus(msg, cls) {
@@ -895,6 +1018,8 @@ function applyCode(idx) {
   if (typeof result === 'function') {
     compiledAnims[idx] = result;
     animSources[idx]   = body;
+    saveToLS(idx);
+    updateModifiedDot(idx);
     setApplyStatus('✓ OK', 'ok');
     setTimeout(() => { if (document.getElementById('applyStatus').textContent === '✓ OK') setApplyStatus('',''); }, 2000);
   } else {
@@ -907,6 +1032,7 @@ function resetCode(idx) {
   ANIM_PARAM_DEFS[idx].forEach(d => { animParamVals[idx][d.key] = d.def; });
   const result = compileAnim(ANIM_SOURCES_DEFAULT[idx]);
   if (typeof result === 'function') compiledAnims[idx] = result;
+  clearLS(idx);
   loadAnimEditor(idx);
   setApplyStatus('↺ reset', 'ok');
   setTimeout(() => { if (document.getElementById('applyStatus').textContent === '↺ reset') setApplyStatus('',''); }, 1500);
@@ -1012,6 +1138,13 @@ function setupUI() {
 
   document.getElementById('btnApply').addEventListener('click', () => applyCode(state.turnAnimIdx));
   document.getElementById('btnReset').addEventListener('click', () => resetCode(state.turnAnimIdx));
+  document.getElementById('btnExport').addEventListener('click', () => exportAnimFile(state.turnAnimIdx));
+  document.getElementById('fileImport').addEventListener('change', function() {
+    if (this.files[0]) {
+      importAnimFile(state.turnAnimIdx, this.files[0]);
+      this.value = '';
+    }
+  });
 
   // Ctrl+Enter applies code from editor
   document.getElementById('codeEditor').addEventListener('keydown', e => {
@@ -1036,6 +1169,7 @@ function loop(timestamp) {
 
 initCanvas(cvRight);
 initCanvas(cvLeft);
+for (let i = 0; i < ANIM_NAMES.length; i++) loadFromLS(i);
 setupUI();
 requestAnimationFrame(loop);
 </script>
