@@ -43,24 +43,24 @@ Widok z zewnątrz auta (to co widzi obserwator):
 
 ---
 
-## MVP — Co ma robić aplikacja
+## Stan aplikacji (czerwiec 2026)
 
-### Cel główny
-Wklejasz fragment kodu C++ (funkcję animacji z firmware Arduino) → aplikacja renderuje jak ta animacja wygląda w czasie rzeczywistym na wirtualnych matrycach LED.
+### Zaimplementowane funkcje
+1. **Panel podglądu LED** — dwie siatki 8×16 (lewa/prawa lampa), każda dioda to kolorowe kółko z efektem glow
+2. **Symulator sygnałów** — przyciski: LIGHTS_ON, STOP, LEFT_TURN, RIGHT_TURN; kierunkowskazy symulują flasher (~500ms)
+3. **Symulator state machine** — IDLE, TURN_L/R, HAZARD, BRAKING, ANIM_ON/OFF (identyczna logika co firmware)
+4. **Edytor kodu animacji** — textarea z JS-owym kodem ciała funkcji; Apply (lub Ctrl+Enter) re-kompiluje przez `eval` i podmienia funkcję na żywo
+5. **Panel parametrów per-animacja** — suwaki dla każdej animacji (np. Wave Scale, Head Width, Fill Frac); zmiany działają natychmiast bez recompile (parametry `p.xxx` przekazywane przy każdej klatce)
+6. **Edytor kolorów i jasności** — osobne color pickery + suwaki dla Turn, Stop, Lights
+7. **Parametry F1 Stop** — konfigurowalne: liczba błysków, czas on/off
+8. **Podkład pozycyjnych** — toggle Underlay (pozycyjne pod animacją kierunkowskazów)
+9. **Kontrola prędkości animacji** — suwak turnAnimSpeed (200–2000ms)
 
-### Funkcje MVP
-1. **Panel podglądu LED** — dwie siatki 8×16 (lewa/prawa lampa), każda dioda to kolorowe kółko
-2. **Symulator sygnałów** — przyciski/przełączniki do wyzwalania: LIGHTS_ON, STOP, LEFT_TURN, RIGHT_TURN
-3. **Edytor kodu animacji** — pole tekstowe, wklejasz funkcję C++ animacji
-4. **Transpilacja/interpretacja** — aplikacja parsuje lub transpiluje logikę animacji do JavaScript i uruchamia ją w pętli renderowania
-5. **Filtr czerwony** — opcja nałożenia czerwonego filtra (symulacja kloszów Mustanga)
-6. **Kontrola czasu** — suwak prędkości animacji, pauza, reset
-
-### Funkcje na później (poza MVP)
-- Połączenie przez Serial USB z fizycznym Arduino (odbiór danych z symulatora)
-- Zapis/odtwarzanie sekwencji animacji
+### Funkcje na później
+- Zapis edytowanej animacji do osobnego pliku `.js` w `visualiser/` + ładowanie przy starcie
+- Dodawanie nowych animacji z poziomu UI
+- Połączenie przez Serial USB z fizycznym Arduino
 - Eksport GIF/wideo animacji
-- Edytor kolorów i jasności z podglądem na żywo
 
 ---
 
@@ -176,8 +176,12 @@ Skalowanie jasności: scaleRgbBrightness(color, neo_0_255)
 ```
 ThingsByPluzzLED/          ← publiczne repo na GitHubie
 ├── CLAUDE.md
-├── index.html             ← cała aplikacja MVP (jeden plik)
-└── README.md              ← krótki opis projektu
+├── firmware/
+│   ├── mustang_working.ino       ← firmware v6.24
+│   ├── mustang_settings.h
+│   └── mustang_perceptual.h
+└── visualiser/
+    └── index.html                ← cała aplikacja (jeden plik HTML+JS)
 ```
 
 ### Repo
@@ -191,7 +195,7 @@ ThingsByPluzzLED/          ← publiczne repo na GitHubie
 
 ### Workflow przy każdej zmianie
 ```bash
-git add index.html
+git add visualiser/index.html
 git commit -m "opis zmiany"
 git push
 # GitHub Pages automatycznie aktualizuje stronę w ciągu ~1 minuty
@@ -210,22 +214,36 @@ Następnie włącz GitHub Pages w ustawieniach repo (jak wyżej).
 
 ## Instrukcje dla Claude Code
 
-### Priorytet prac
-1. Zacznij od działającego renderera matrycy LED w przeglądarce (HTML/Canvas lub React)
-2. Dodaj symulator sygnałów wejściowych
-3. Zaimplementuj najprostszą animację kierunkowskazu ręcznie w JS (jako punkt odniesienia)
-4. Dopiero potem buduj mechanizm wklejania/parsowania kodu C++
+### Architektura edytora kodu (ważne przy dalszej pracy)
+
+Animacje w `visualiser/index.html` są przechowywane jako stringi z ciałem funkcji JS (`ANIM_SOURCES_DEFAULT[]`).
+Sygnatura każdej funkcji: `(buf, sIdx, color, now, p)` gdzie:
+- `buf` — Uint8Array pikseli lampy
+- `sIdx` — indeks paska (0=prawa, 1=lewa)
+- `color` — 0xRRGGBB kolor (np. `colorConfig.turn`)
+- `now` — timestamp w ms (jak `millis()` w firmware)
+- `p` — obiekt parametrów animacji (`animParamVals[idx]`)
+
+**Dostępne globale w kodzie animacji** (eval działa w bieżącym scope):
+```
+state.turnAnimSpeed, state.brightTurn, colorConfig.turn/stop/lightsOn
+TURN_COLS, TURN_ROWS, TURN_CENTER_X, TURN_CENTER_Y, TURN_MAX_DIST
+turnLedRGB(rM,gM,bM,heat), lightsLedRGB(), setLed(buf,sIdx,c,r,rv,gv,bv)
+neoFromPercent(pct), scaleRgb(color,bright)
+```
+
+**Uwaga:** Używamy `eval(...)` bezpośrednio (nie Web Worker) — aplikacja hostowana na zaufanym GitHub Pages, edytor jest narzędziem dewelopera. Upraszcza architekturę i daje dostęp do lokalnego scope.
 
 ### Zasady kodowania
 - Kod animacji w firmware używa **nieblokującej pętli loop()** — żadnych `delay()`, tylko liczniki czasu (`millis()`)
-- Wizualizator musi odwzorowywać tę samą logikę — używaj `requestAnimationFrame` lub setInterval z deltaTime
-- Serpentyna MUSI być zaimplementowana identycznie jak w firmware — to krytyczne dla poprawności wizualizacji
+- Wizualizator odwzorowuje tę samą logikę — `requestAnimationFrame` z `now` (timestamp) jako odpowiednik `millis()`
+- Mapowanie `getMappedPixel(stripIdx, col, row)` MUSI być identyczne jak w firmware — lewa lampa lustrzana
 - Kolory NeoPixel są w formacie 0xRRGGBB (32-bit uint)
 
 ### Czego unikać
-- Nie uprościć mapowania serpentyny — błędy tam spowodują że animacje będą wyglądać inaczej niż w aucie
-- Nie blokować głównego wątku renderowania przy parsowaniu kodu użytkownika
-- Sandbox kod użytkownika (eval w Web Worker lub iframe sandbox) dla bezpieczeństwa
+- Nie upraszczać mapowania `getMappedPixel` — błędy spowodują że animacje będą wyglądać inaczej niż w aucie
+- Nie blokować głównego wątku renderowania
+- Parametry animacji przekazywać przez obiekt `p` (nie hardkodować) — to pozwala na suwaki bez recompile
 
 ---
 
@@ -237,7 +255,7 @@ Folder: `LED_TailLights` (Google Drive, właściciel: pluzztezeusz@gmail.com)
 - `Mustang LED - Stan Faktyczny Projektu` — aktualny stan projektu (czerwiec 2026)
 - Arkusz kalkulacyjny — lista zakupów komponentów
 
-## Pliki firmware w repozytorium
+## Pliki projektu
 
 ```
 ThingsByPluzzLED/
@@ -245,12 +263,12 @@ ThingsByPluzzLED/
 │   ├── mustang_working.ino       ← główny plik firmware v6.24
 │   ├── mustang_settings.h        ← struktura Settings + EEPROM defaults
 │   └── mustang_perceptual.h      ← konwersja jasności % → NeoPixel (γ=2.2)
-├── visualizer/
-│   └── index.html                ← wizualizator (cel budowy)
+├── visualiser/
+│   └── index.html                ← wizualizator (gotowy, single-file)
 └── CLAUDE.md
 ```
 
-Przy budowie wizualizatora czytaj firmware jako źródło prawdy — szczególnie funkcje animacji i mapowanie serpentyny.
+Przy zmianach w wizualizatorze czytaj firmware jako źródło prawdy — szczególnie funkcje animacji i `getMappedPixel`.
 
 ---
 
