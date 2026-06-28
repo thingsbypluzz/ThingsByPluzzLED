@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mustang LED Visualizer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d0d0d;
+  color: #ccc;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 12px;
+  gap: 18px;
+  min-height: 100vh;
+}
+h1 { font-size: 1em; letter-spacing: 4px; color: #f80; text-transform: uppercase; }
+.lamps {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.lamp-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.lamp-label {
+  font-size: 0.7em;
+  letter-spacing: 3px;
+  color: #555;
+  text-transform: uppercase;
+}
+canvas {
+  display: block;
+  border-radius: 6px;
+  background: #080808;
+}
+.state-bar {
+  font-size: 0.75em;
+  letter-spacing: 3px;
+  color: #f80;
+  min-height: 1.2em;
+  text-align: center;
+}
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.btn {
+  padding: 10px 16px;
+  border: 2px solid #333;
+  background: #181818;
+  color: #666;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8em;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.btn:hover { border-color: #555; color: #aaa; }
+.btn-lights.on  { background: #1a0000; border-color: #700; color: #f66; }
+.btn-stop.on    { background: #1a1a1a; border-color: #aaa; color: #fff; }
+.btn-turn.on    { background: #1a0e00; border-color: #f80; color: #fa0; }
+.options {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  font-size: 0.75em;
+  color: #555;
+}
+.opt-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.opt-label { color: #444; letter-spacing: 1px; font-size: 0.9em; margin-bottom: 2px; }
+input[type=range] {
+  accent-color: #f80;
+  width: 100px;
+  cursor: pointer;
+}
+.opt-val { color: #888; min-width: 45px; text-align: center; }
+.toggle-row { display: flex; gap: 8px; align-items: center; }
+.small-btn {
+  padding: 4px 10px;
+  border: 1px solid #333;
+  background: #181818;
+  color: #555;
+  font-family: inherit;
+  font-size: 0.85em;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.small-btn.on { border-color: #f80; color: #f80; background: #1a0e00; }
+.anim-select {
+  background: #181818;
+  border: 1px solid #333;
+  color: #888;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.anim-select:focus { outline: 1px solid #f80; }
+</style>
+</head>
+<body>
+
+<h1>Mustang LED — Visualizer</h1>
+
+<div class="lamps">
+  <div class="lamp-wrap">
+    <div class="lamp-label">Lewa</div>
+    <canvas id="cvLeft"></canvas>
+  </div>
+  <div class="lamp-wrap">
+    <div class="lamp-label">Prawa</div>
+    <canvas id="cvRight"></canvas>
+  </div>
+</div>
+
+<div class="state-bar" id="stateBar">OFF</div>
+
+<div class="controls">
+  <button class="btn btn-lights" id="btnLights">Lights On</button>
+  <button class="btn btn-stop"   id="btnStop">Stop</button>
+  <button class="btn btn-turn"   id="btnLeft">◄ Left</button>
+  <button class="btn btn-turn"   id="btnRight">Right ►</button>
+</div>
+
+<div class="options">
+
+  <div class="opt-group">
+    <div class="opt-label">Animation</div>
+    <select class="anim-select" id="animSelect">
+      <option value="0">Diamond Pulse</option>
+      <option value="1">Star Fill Pulse</option>
+      <option value="2">Scanning Aura</option>
+      <option value="3">Continuous Organic</option>
+      <option value="4">Continuous Organic 2</option>
+      <option value="5">Radar</option>
+      <option value="6">Column Fill Pulse</option>
+      <option value="7">Column Wipe</option>
+    </select>
+  </div>
+
+  <div class="opt-group">
+    <div class="opt-label">Anim Speed</div>
+    <input type="range" id="speedSlider" min="200" max="2000" value="900" step="10">
+    <span class="opt-val" id="speedVal">900ms</span>
+  </div>
+
+  <div class="opt-group">
+    <div class="opt-label">Brightness</div>
+    <input type="range" id="brightSlider" min="0" max="100" value="30" step="5">
+    <span class="opt-val" id="brightVal">30%</span>
+  </div>
+
+  <div class="opt-group">
+    <div class="opt-label">Options</div>
+    <div class="toggle-row">
+      <button class="small-btn on" id="btnF1Stop">F1 Stop</button>
+      <button class="small-btn on" id="btnUnderlay">Underlay</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+// =========================================================================
+// CONSTANTS — mirror of firmware
+// =========================================================================
+const TURN_COLS        = 16;
+const TURN_ROWS        = 8;
+const TURN_BLOCK_COLS  = 8;
+const LEDS_PER_BLOCK   = 64;    // 8×8
+const NUMPIXELS        = 128;   // 2 × 64
+const STRIP_RIGHT      = 0;
+const STRIP_LEFT       = 1;
+const TURN_CENTER_X    = (TURN_COLS - 1) * 0.5;  // 7.5
+const TURN_CENTER_Y    = (TURN_ROWS - 1) * 0.5;  // 3.5
+const TURN_MAX_DIST    = 8.3;
+
+// LED cell render size
+const LED_SIZE = 26;
+const LED_GAP  = 3;
+const CW = TURN_COLS * (LED_SIZE + LED_GAP) + LED_GAP;
+const CH = TURN_ROWS * (LED_SIZE + LED_GAP) + LED_GAP;
+
+// =========================================================================
+// PERCEPTUAL BRIGHTNESS  (mustang_perceptual.h → JS)
+// =========================================================================
+const kPct5ToNeo = [0, 1, 2, 4, 7, 12, 18, 25, 34, 44, 55, 68, 83, 99, 116, 135, 156, 178, 202, 228, 255];
+
+function neoFromPercent(p) {
+  p = Math.max(0, Math.min(100, p));
+  const idx = Math.min(20, Math.round(p / 5));
+  return kPct5ToNeo[idx];
+}
+
+// =========================================================================
+// PIXEL MAPPING  (getMappedPixel from firmware)
+// =========================================================================
+function getMappedPixel(stripIdx, col, row) {
+  if (stripIdx === STRIP_LEFT) col = TURN_COLS - 1 - col;
+  return Math.floor(col / TURN_BLOCK_COLS) * LEDS_PER_BLOCK
+       + row * TURN_BLOCK_COLS
+       + (col % TURN_BLOCK_COLS);
+}
+
+// =========================================================================
+// PIXEL BUFFERS  — Uint8Array [R,G,B, R,G,B, ...] × 128 pixels
+// =========================================================================
+const bufRight = new Uint8Array(NUMPIXELS * 3);
+const bufLeft  = new Uint8Array(NUMPIXELS * 3);
+const bufs     = [bufRight, bufLeft];
+
+function clearBuf(buf) { buf.fill(0); }
+
+function setPixel(buf, idx, r, g, b) {
+  const i = idx * 3;
+  buf[i] = r; buf[i+1] = g; buf[i+2] = b;
+}
+
+function fillBuf(buf, r, g, b) {
+  for (let i = 0; i < NUMPIXELS; i++) setPixel(buf, i, r, g, b);
+}
+
+// Set (col, row) on strip — mirrors stripArray[sIdx].setPixelColor(getMappedPixel(...), color)
+function setLed(buf, stripIdx, col, row, r, g, b) {
+  const idx = getMappedPixel(stripIdx, col, row);
+  if (idx < NUMPIXELS) setPixel(buf, idx, r, g, b);
+}
+
+// =========================================================================
+// COLOR UTILITIES
+// =========================================================================
+function scaleRgb(color, bright) {
+  bright = Math.max(0, Math.min(255, bright));
+  return [
+    Math.round(((color >> 16) & 0xFF) * bright / 255),
+    Math.round(((color >>  8) & 0xFF) * bright / 255),
+    Math.round(( color        & 0xFF) * bright / 255),
+  ];
+}
+
+// mirror of turnLedColor(rM, gM, bM, heat) — uses global brightTurn
+function turnLedRGB(rM, gM, bM, heat) {
+  const bt = neoFromPercent(state.brightTurn);
+  const e  = Math.max(0, Math.min(1, heat)) * bt / 255;
+  return [
+    Math.min(255, Math.round(rM * e)),
+    Math.min(255, Math.round(gM * e)),
+    Math.min(255, Math.round(bM * e)),
+  ];
+}
+
+function lightsLedRGB(rM, gM, bM, heat) {
+  const bt = neoFromPercent(state.brightLights);
+  const e  = Math.max(0, Math.min(1, heat)) * bt / 255;
+  return [
+    Math.min(255, Math.round(rM * e)),
+    Math.min(255, Math.round(gM * e)),
+    Math.min(255, Math.round(bM * e)),
+  ];
+}
+
+// =========================================================================
+// GLOBAL STATE
+// =========================================================================
+const colorConfig = { turn: 0xFF5500, stop: 0xFFFFFF, lightsOn: 0x400000 };
+
+const state = {
+  brightStop:   30,
+  brightTurn:   30,
+  brightLights: 25,
+  turnAnimSpeed: 900,
+  f1StopEnabled: true,
+  turnPosUnderlay: true,
+  turnAnimIdx: 0,
+};
+
+const stopBlinkNumber   = 3;
+const stopBlinkDuration = 50;
+const stopGap           = 50;
+const DURATION_ANIM_ON  = 1500;
+const DURATION_ANIM_OFF = 600;
+const TURN_TIMEOUT      = 600;
+
+// Input signals
+const sig = { lights: false, stop: false, left: false, right: false };
+
+// Flasher simulation
+let leftFlasherTimer  = null;
+let rightFlasherTimer = null;
+let leftTurnOn  = false;
+let rightTurnOn = false;
+
+// Time tracking
+let lastLeftPulse  = -9999;
+let lastRightPulse = -9999;
+let brakeStartTime = -9999;
+let animStartTime  = 0;
+let prevLightsOn   = false;
+let prevBrake      = false;
+
+// State machine
+const ST = { IDLE: 0, TURN_L: 1, TURN_R: 2, HAZARD: 3, BRAKING: 4, ANIM_ON: 5, ANIM_OFF: 6 };
+const ST_NAMES = ['OFF', 'TURN LEFT ◄', 'TURN RIGHT ►', 'HAZARD ◄►', 'STOP', 'LIGHTS ON…', 'LIGHTS OFF…'];
+let curState = ST.IDLE;
+
+// =========================================================================
+// ANIMATIONS
+// =========================================================================
+
+function renderDiamondPulse(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const gp = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  for (let c = 0; c < TURN_COLS; c++) {
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const dist = Math.sqrt((c - TURN_CENTER_X) ** 2 + (r - TURN_CENTER_Y) ** 2);
+      const waveFront = gp * 1.4;
+      let heat = Math.max(0, Math.min(1, 1.0 - Math.abs(dist / TURN_MAX_DIST - waveFront) / 0.4));
+      if (gp > 0.7) heat *= (1.0 - (gp - 0.7) * 3.33);
+      if (heat > 0.01) {
+        const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+        setLed(buf, sIdx, c, r, rv, gv, bv);
+      }
+    }
+  }
+}
+
+function renderStarFillPulse(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const gp = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  const growth = Math.sin(gp * Math.PI);
+  const currentRadius = growth * TURN_MAX_DIST;
+  for (let c = 0; c < TURN_COLS; c++) {
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const dist = Math.sqrt((c - TURN_CENTER_X) ** 2 + (r - TURN_CENTER_Y) ** 2);
+      const heat = Math.max(0, Math.min(1, (currentRadius - dist) / 0.8 + 0.5));
+      if (heat > 0.02) {
+        const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+        setLed(buf, sIdx, c, r, rv, gv, bv);
+      }
+    }
+  }
+}
+
+function renderScanningAura(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const gp = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  const centerRow = 3.5 + Math.sin(gp * 2.0 * Math.PI) * 5.0;
+  for (let c = 0; c < TURN_COLS; c++) {
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const heat = Math.max(0, Math.min(1, 1.0 - Math.abs(r - centerRow) / 2.2));
+      if (heat > 0.02) {
+        const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+        setLed(buf, sIdx, c, r, rv, gv, bv);
+      }
+    }
+  }
+}
+
+function renderContinuousOrganic(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const ghosting = 10.0;
+  const waveDur = state.turnAnimSpeed;
+  const waveGap = waveDur / 2;
+  const cycle   = waveDur + waveGap;
+  for (let c = 0; c < TURN_COLS; c++) {
+    const offset    = c * 0.12 * waveDur;
+    const localTime = ((now - offset) % cycle + cycle) % cycle;
+    const progress  = (localTime < waveDur) ? localTime / (waveDur / 2.0) : 0;
+    if (progress > 0) {
+      for (let r = 0; r < TURN_ROWS; r++) {
+        let heat = Math.max(0, Math.min(1, progress - Math.abs(r - 3.5) * 0.25));
+        if (heat > 1.0) heat = Math.max(0, 1.0 - (heat - 1.0) * (2.0 / ghosting));
+        if (heat > 0.02) {
+          const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+          setLed(buf, sIdx, c, r, rv, gv, bv);
+        }
+      }
+    }
+  }
+}
+
+function renderContinuousOrganic2(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const gp      = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  const colStep = 0.7 / (TURN_COLS - 1);
+  for (let c = 0; c < TURN_COLS; c++) {
+    let colProg = Math.max(0, Math.min(1, (gp - c * colStep) * 2.5));
+    if (gp > 0.8) colProg *= (1.0 - (gp - 0.8) * 5.0);
+    if (colProg > 0) {
+      for (let r = 0; r < TURN_ROWS; r++) {
+        const heat = Math.max(0, Math.min(1, colProg * 1.5 - Math.abs(r - 3.5) * 0.2));
+        if (heat > 0.02) {
+          const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+          setLed(buf, sIdx, c, r, rv, gv, bv);
+        }
+      }
+    }
+  }
+}
+
+function renderRadar(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const headWidth  = 3.0;
+  const tailLength = 3.0;
+  const duration   = state.turnAnimSpeed;
+  const gp       = (now % duration) / duration;
+  const waveHead = gp * (TURN_COLS + tailLength);
+  for (let c = 0; c < TURN_COLS; c++) {
+    const dist = waveHead - c;
+    let heat = 0;
+    if (dist >= 0 && dist <= headWidth) {
+      heat = 1.0;
+    } else if (dist > headWidth && dist <= headWidth + tailLength) {
+      heat = Math.pow(Math.max(0, 1.0 - (dist - headWidth) / tailLength), 1.5);
+    }
+    if (heat > 0.01) {
+      for (let r = 0; r < TURN_ROWS; r++) {
+        const [rv, gv, bv] = turnLedRGB(rM, gM, bM, heat);
+        setLed(buf, sIdx, c, r, rv, gv, bv);
+      }
+    }
+  }
+}
+
+function renderColumnFillPulse(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const fillFrac = 0.3;
+  const cycle = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  let edge;
+  if (cycle < fillFrac)
+    edge = (cycle / fillFrac) * TURN_COLS;
+  else
+    edge = (1.0 - (cycle - fillFrac) / (1.0 - fillFrac)) * TURN_COLS;
+  for (let c = 0; c < TURN_COLS; c++) {
+    if (c >= edge) continue;
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const [rv, gv, bv] = turnLedRGB(rM, gM, bM, 1.0);
+      setLed(buf, sIdx, c, r, rv, gv, bv);
+    }
+  }
+}
+
+function renderColumnWipe(buf, sIdx, color, now) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const tFillEnd = 0.30;
+  const tHoldOn  = 0.40;
+  const tWipeEnd = 0.90;
+  const cycle = (now % state.turnAnimSpeed) / state.turnAnimSpeed;
+  for (let c = 0; c < TURN_COLS; c++) {
+    let on = false;
+    if (cycle < tFillEnd) {
+      on = c < (cycle / tFillEnd) * TURN_COLS;
+    } else if (cycle < tHoldOn) {
+      on = true;
+    } else if (cycle < tWipeEnd) {
+      const darkEdge = ((cycle - tHoldOn) / (tWipeEnd - tHoldOn)) * TURN_COLS;
+      on = c >= darkEdge;
+    }
+    if (!on) continue;
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const [rv, gv, bv] = turnLedRGB(rM, gM, bM, 1.0);
+      setLed(buf, sIdx, c, r, rv, gv, bv);
+    }
+  }
+}
+
+// Lights ON/OFF animation (renderOrganicTurn from firmware)
+function renderOrganicTurn(buf, sIdx, progress, color) {
+  const rM = (color >> 16) & 0xFF, gM = (color >> 8) & 0xFF, bM = color & 0xFF;
+  const colStep = 0.7 / (TURN_COLS - 1);
+  for (let c = 0; c < TURN_COLS; c++) {
+    const colProg = Math.max(0, Math.min(1, (progress - c * colStep) * 2.5));
+    if (colProg > 0) {
+      for (let r = 0; r < TURN_ROWS; r++) {
+        const heat = Math.max(0, Math.min(1, colProg * 1.5 - Math.abs(r - 3.5) * 0.2));
+        if (heat > 0.02) {
+          const [rv, gv, bv] = lightsLedRGB(rM, gM, bM, heat);
+          setLed(buf, sIdx, c, r, rv, gv, bv);
+        }
+      }
+    }
+  }
+}
+
+const TURN_ANIMS = [
+  renderDiamondPulse,
+  renderStarFillPulse,
+  renderScanningAura,
+  renderContinuousOrganic,
+  renderContinuousOrganic2,
+  renderRadar,
+  renderColumnFillPulse,
+  renderColumnWipe,
+];
+
+// =========================================================================
+// RENDER FRAME
+// =========================================================================
+
+function isTurnActive(rawSignal, lastPulse, now) {
+  if (rawSignal) return true;
+  return (now - lastPulse) < TURN_TIMEOUT;
+}
+
+function getBrakeColor(now) {
+  if (!state.f1StopEnabled) return colorConfig.stop;
+  const elapsed   = now - brakeStartTime;
+  const cycleTime = stopBlinkDuration + stopGap;
+  if (elapsed < stopBlinkNumber * cycleTime) {
+    return (elapsed % cycleTime < stopBlinkDuration) ? colorConfig.stop : null;
+  }
+  return colorConfig.stop;
+}
+
+function renderFrame(now) {
+  const rawL   = sig.left;
+  const rawR   = sig.right;
+  const b      = sig.stop;
+  const lights = sig.lights;
+
+  if (rawL) lastLeftPulse  = now;
+  if (rawR) lastRightPulse = now;
+
+  if (b && !prevBrake) brakeStartTime = now;
+  prevBrake = b;
+
+  const l = isTurnActive(rawL, lastLeftPulse, now);
+  const r = isTurnActive(rawR, lastRightPulse, now);
+
+  // State machine
+  let ns = ST.IDLE;
+  if (b || l || r) {
+    if (l && r)    ns = ST.HAZARD;
+    else if (l)    ns = ST.TURN_L;
+    else if (r)    ns = ST.TURN_R;
+    else           ns = ST.BRAKING;
+  } else if (!lights) {
+    if (prevLightsOn || curState === ST.ANIM_OFF) ns = ST.ANIM_OFF;
+    else ns = ST.IDLE;
+  } else {
+    if (!prevLightsOn) ns = ST.ANIM_ON;
+    else ns = (curState === ST.ANIM_ON) ? ST.ANIM_ON : ST.IDLE;
+  }
+
+  if (ns !== curState) {
+    curState      = ns;
+    animStartTime = now;
+  }
+
+  const stateLabel = (curState === ST.IDLE && lights) ? 'POZYCYJNE' : (ST_NAMES[curState] || 'OFF');
+  document.getElementById('stateBar').textContent = stateLabel;
+
+  // Clear
+  clearBuf(bufRight);
+  clearBuf(bufLeft);
+
+  if (curState === ST.ANIM_ON) {
+    const p = Math.min(1, (now - animStartTime) / DURATION_ANIM_ON);
+    for (let s = 0; s < 2; s++) renderOrganicTurn(bufs[s], s, p, colorConfig.lightsOn);
+    if (p >= 1.0) curState = ST.IDLE;
+
+  } else if (curState === ST.ANIM_OFF) {
+    const p = Math.min(1, (now - animStartTime) / DURATION_ANIM_OFF);
+    for (let s = 0; s < 2; s++) renderOrganicTurn(bufs[s], s, 1.0 - p, colorConfig.lightsOn);
+    if (p >= 1.0) curState = ST.IDLE;
+
+  } else {
+    for (let s = 0; s < 2; s++) {
+      const isTurn = (s === STRIP_RIGHT && r) || (s === STRIP_LEFT && l) || curState === ST.HAZARD;
+
+      if (isTurn) {
+        // Underlay: position lights under turn animation
+        if (lights && state.turnPosUnderlay) {
+          const [ur, ug, ub] = scaleRgb(colorConfig.lightsOn, neoFromPercent(state.brightLights));
+          fillBuf(bufs[s], ur, ug, ub);
+        }
+        const anim = TURN_ANIMS[state.turnAnimIdx] || renderDiamondPulse;
+        anim(bufs[s], s, colorConfig.turn, now);
+
+      } else if (b) {
+        const bc = getBrakeColor(now);
+        if (bc !== null) {
+          const [sr, sg, sb] = scaleRgb(bc, neoFromPercent(state.brightStop));
+          fillBuf(bufs[s], sr, sg, sb);
+        }
+
+      } else if (lights) {
+        const [lr, lg, lb] = scaleRgb(colorConfig.lightsOn, neoFromPercent(state.brightLights));
+        fillBuf(bufs[s], lr, lg, lb);
+      }
+    }
+  }
+
+  prevLightsOn = lights;
+}
+
+// =========================================================================
+// CANVAS DRAWING
+// =========================================================================
+
+const cvRight = document.getElementById('cvRight');
+const cvLeft  = document.getElementById('cvLeft');
+
+function initCanvas(cv) {
+  cv.width  = CW;
+  cv.height = CH;
+}
+
+// Gamma expand for display: raw NeoPixel values are perceptually encoded (~gamma 2.2).
+// Applying inverse gamma makes dim lights (like position at 25%) visible on screen.
+function displayGamma(v) {
+  return v > 0 ? Math.min(255, Math.round(Math.pow(v / 255, 0.45) * 255)) : 0;
+}
+
+function drawLamp(cv, buf, stripIdx) {
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#080808';
+  ctx.fillRect(0, 0, CW, CH);
+
+  for (let c = 0; c < TURN_COLS; c++) {
+    for (let r = 0; r < TURN_ROWS; r++) {
+      const pixIdx = getMappedPixel(stripIdx, c, r);
+      const i      = pixIdx * 3;
+      let red = displayGamma(buf[i]);
+      let grn = displayGamma(buf[i+1]);
+      let blu = displayGamma(buf[i+2]);
+
+      const x  = LED_GAP + (stripIdx === STRIP_LEFT ? (TURN_COLS - 1 - c) : c) * (LED_SIZE + LED_GAP);
+      const y  = LED_GAP + r * (LED_SIZE + LED_GAP);
+      const cx = x + LED_SIZE / 2;
+      const cy = y + LED_SIZE / 2;
+      const rad = LED_SIZE / 2;
+
+      const maxCh = Math.max(red, grn, blu);
+
+      if (maxCh > 2) {
+        // Soft glow behind LED
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad * 2.2);
+        glow.addColorStop(0, `rgba(${red},${grn},${blu},0.3)`);
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(cx - rad * 2.5, cy - rad * 2.5, rad * 5, rad * 5);
+      }
+
+      // LED body
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad * 0.82, 0, Math.PI * 2);
+      if (maxCh > 0) {
+        const g = ctx.createRadialGradient(cx - rad * 0.25, cy - rad * 0.25, 0, cx, cy, rad);
+        const hi = (v) => Math.min(255, v + 55);
+        g.addColorStop(0, `rgb(${hi(red)},${hi(grn)},${hi(blu)})`);
+        g.addColorStop(1, `rgb(${red},${grn},${blu})`);
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = '#171717';
+      }
+      ctx.fill();
+    }
+  }
+}
+
+// =========================================================================
+// MAIN LOOP
+// =========================================================================
+
+function loop(timestamp) {
+  renderFrame(timestamp);
+  drawLamp(cvRight, bufRight, STRIP_RIGHT);
+  drawLamp(cvLeft,  bufLeft,  STRIP_LEFT);
+  requestAnimationFrame(loop);
+}
+
+// =========================================================================
+// UI CONTROLS
+// =========================================================================
+
+function setupUI() {
+  // LIGHTS ON — toggle
+  const btnLights = document.getElementById('btnLights');
+  btnLights.addEventListener('click', () => {
+    sig.lights = !sig.lights;
+    btnLights.classList.toggle('on', sig.lights);
+  });
+
+  // STOP — toggle
+  const btnStop = document.getElementById('btnStop');
+  btnStop.addEventListener('click', () => {
+    sig.stop = !sig.stop;
+    btnStop.classList.toggle('on', sig.stop);
+  });
+
+  // TURN signals — toggle, simulate flasher
+  function setupTurn(btnEl, side) {
+    btnEl.addEventListener('click', () => {
+      if (side === 'L') {
+        leftTurnOn = !leftTurnOn;
+        btnEl.classList.toggle('on', leftTurnOn);
+        if (leftTurnOn) {
+          sig.left      = true;
+          lastLeftPulse = performance.now();
+          clearInterval(leftFlasherTimer);
+          leftFlasherTimer = setInterval(() => {
+            sig.left = !sig.left;
+            if (sig.left) lastLeftPulse = performance.now();
+          }, 500);
+        } else {
+          sig.left = false;
+          clearInterval(leftFlasherTimer);
+          leftFlasherTimer = null;
+        }
+      } else {
+        rightTurnOn = !rightTurnOn;
+        btnEl.classList.toggle('on', rightTurnOn);
+        if (rightTurnOn) {
+          sig.right      = true;
+          lastRightPulse = performance.now();
+          clearInterval(rightFlasherTimer);
+          rightFlasherTimer = setInterval(() => {
+            sig.right = !sig.right;
+            if (sig.right) lastRightPulse = performance.now();
+          }, 500);
+        } else {
+          sig.right = false;
+          clearInterval(rightFlasherTimer);
+          rightFlasherTimer = null;
+        }
+      }
+    });
+  }
+  setupTurn(document.getElementById('btnLeft'),  'L');
+  setupTurn(document.getElementById('btnRight'), 'R');
+
+  // Animation select
+  document.getElementById('animSelect').addEventListener('change', (e) => {
+    state.turnAnimIdx = parseInt(e.target.value);
+  });
+
+  // Speed slider
+  const speedSlider = document.getElementById('speedSlider');
+  const speedVal    = document.getElementById('speedVal');
+  speedSlider.addEventListener('input', () => {
+    state.turnAnimSpeed = parseInt(speedSlider.value);
+    speedVal.textContent = state.turnAnimSpeed + 'ms';
+  });
+
+  // Brightness slider
+  const brightSlider = document.getElementById('brightSlider');
+  const brightVal    = document.getElementById('brightVal');
+  brightSlider.addEventListener('input', () => {
+    const v = parseInt(brightSlider.value);
+    state.brightTurn   = v;
+    state.brightStop   = v;
+    state.brightLights = Math.max(5, Math.round(v * 0.85));
+    brightVal.textContent = v + '%';
+  });
+
+  // Toggle buttons
+  function makeToggle(id, key, initial) {
+    const btn = document.getElementById(id);
+    state[key] = initial;
+    btn.classList.toggle('on', initial);
+    btn.addEventListener('click', () => {
+      state[key] = !state[key];
+      btn.classList.toggle('on', state[key]);
+    });
+  }
+  makeToggle('btnF1Stop',    'f1StopEnabled',   true);
+  makeToggle('btnUnderlay',  'turnPosUnderlay', true);
+}
+
+// =========================================================================
+// INIT
+// =========================================================================
+initCanvas(cvRight);
+initCanvas(cvLeft);
+setupUI();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
